@@ -1,37 +1,49 @@
 import numpy as np
 import cv2
+import requests
+from io import BytesIO
+from PIL import Image
 import os
 
 # Constants for Base83 encoding
 BASE83_CHARACTERS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~"
 
-def encode_image_to_string(image_path, components_x=4, components_y=3):
+def fetch_image(image_url):
+    """
+    Fetches an image from a URL and returns it as a numpy array.
+
+    Args:
+        image_url (str): The URL of the image.
+
+    Returns:
+        np.ndarray: The image data as a numpy array.
+    """
+    response = requests.get(image_url)
+    if response.status_code == 200:
+        image = Image.open(BytesIO(response.content))
+        return np.array(image.convert('RGB')) / 255.0
+    else:
+        raise ValueError(f"Failed to fetch image from URL: {image_url}")
+
+def encode_image_to_string(image_data, components_x=4, components_y=3):
     """
     Encodes an image into a compact string representation using a DCT-based method.
 
     Args:
-        image_path (str): The path to the image file.
+        image_data (np.ndarray): The image data as a numpy array.
         components_x (int): The number of horizontal components.
         components_y (int): The number of vertical components.
 
     Returns:
         str: The encoded string representation of the image.
     """
-    # Load the image using OpenCV
-    image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError(f"Image at path {image_path} could not be loaded.")
-
-    height, width, _ = image.shape
-
-    # Normalize the image to a range of [0, 1]
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) / 255.0
+    height, width, _ = image_data.shape
 
     # Initialize frequency components
     frequency_components = []
 
     # Calculate average color
-    avg_color = np.mean(image, axis=(0, 1))
+    avg_color = np.mean(image_data, axis=(0, 1))
     frequency_components.append(avg_color)
 
     # Apply DCT to capture frequency components
@@ -39,7 +51,7 @@ def encode_image_to_string(image_path, components_x=4, components_y=3):
         for x in range(components_x):
             if x == 0 and y == 0:
                 continue
-            dct_value = apply_dct(image, x, y, width, height)
+            dct_value = apply_dct(image_data, x, y, width, height)
             frequency_components.append(dct_value)
 
     # Encode frequency components into a Base83 string
@@ -227,22 +239,22 @@ def decode_base83_value(base83_str):
         value = value * 83 + BASE83_CHARACTERS.index(char)
     return value
 
-if __name__ == "__main__":
-    # Display menu and get user choice
+def main():
     print("Select an option:")
     print("1. Encode image to hash")
     print("2. Decode hash to image")
-    choice = input("Enter your choice (1/2): ")
+    choice = input("Enter your choice (1/2): ").strip()
 
     if choice == '1':
         # Option 1: Encode image to hash
-        print("Please enter the path to the image file:")
-        image_path = input("Image path: ").strip()
-        if not os.path.isfile(image_path):
-            print("Invalid file path.")
-        else:
-            encoded_string = encode_image_to_string(image_path)
+        print("Please enter the URL of the image:")
+        image_url = input("Image URL: ").strip()
+        try:
+            image_data = fetch_image(image_url)
+            encoded_string = encode_image_to_string(image_data)
             print("Encoded string:", encoded_string)
+        except Exception as e:
+            print(f"Error: {e}")
 
     elif choice == '2':
         # Option 2: Decode hash to image
@@ -256,3 +268,6 @@ if __name__ == "__main__":
 
     else:
         print("Invalid choice. Please select 1 or 2.")
+
+if __name__ == "__main__":
+    main()
