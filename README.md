@@ -6,9 +6,14 @@ This document describes a Python implementation for encoding images into compact
 ## Purpose
 The primary objective of this implementation is to provide a means to:
 
-### Efficiently Encode Images: Convert images into a compact string format.
-### Quickly Decode Images: Reconstruct a blurred image from the string format.
-### Balance Detail and Performance: Adjust encoding parameters to control the level of detail and computational efficiency. <br/>
+### Efficiently Encode Images: 
+Convert images into a compact string format.
+
+### Quickly Decode Images: 
+Reconstruct a blurred image from the string format.
+
+### Balance Detail and Performance: 
+Adjust encoding parameters to control the level of detail and computational efficiency. <br/>
 
 ## How It Works
 # Encoding Process
@@ -42,13 +47,24 @@ The Inverse Discrete Cosine Transform (IDCT) is applied to the decoded component
 A new image is generated using the decoded pixel values, with the specified width and height parameters. The resulting image is a blurred version of the original, capturing the essential colors and shapes while omitting finer details.
 
 ## Advantages
-### Compact Representation: The encoding method significantly reduces the image data size, making it efficient for storage and transmission.
-### Quick Loading: Images can be displayed quickly, enhancing the user experience during image loading.
-### Visual Consistency: Blurred images provide a smooth visual experience while the full-resolution image is loading.
+### Compact Representation: 
+The encoding method significantly reduces the image data size, making it efficient for storage and transmission.
+
+### Quick Loading: 
+Images can be displayed quickly, enhancing the user experience during image loading.
+
+### Visual Consistency: 
+Blurred images provide a smooth visual experience while the full-resolution image is loading.
 
 ## Use Cases
-### Web Applications: Display placeholders for images in web galleries, news feeds, or social media platforms while the full image is loading.
-### Mobile Apps: Improve user experience in mobile apps by providing immediate visual feedback during image loading.
-### Design Prototypes: Use blurred image representations in design mockups or prototypes to simulate image-heavy interfaces without large assets.
+### Web Applications: 
+Display placeholders for images in web galleries, news feeds, or social media platforms while the full image is loading.
+
+### Mobile Apps: 
+Improve user experience in mobile apps by providing immediate visual feedback during image loading.
+
+### Design Prototypes: 
+Use blurred image representations in design mockups or prototypes to simulate image-heavy interfaces without large assets.
+
 # Conclusion
 This Python implementation provides a straightforward and efficient approach for encoding and decoding images into compact string representations. By focusing on essential colors and low-frequency components, the implementation achieves efficient and visually pleasing results, making it an excellent choice for applications requiring quick image previews or placeholders.
