@@ -1,9 +1,9 @@
 import numpy as np
 import cv2
+import os
 
 # Constants for Base83 encoding
 BASE83_CHARACTERS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~"
-
 
 def encode_image_to_string(image_path, components_x=4, components_y=3):
     """
@@ -19,6 +19,9 @@ def encode_image_to_string(image_path, components_x=4, components_y=3):
     """
     # Load the image using OpenCV
     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError(f"Image at path {image_path} could not be loaded.")
+
     height, width, _ = image.shape
 
     # Normalize the image to a range of [0, 1]
@@ -40,11 +43,9 @@ def encode_image_to_string(image_path, components_x=4, components_y=3):
             frequency_components.append(dct_value)
 
     # Encode frequency components into a Base83 string
-    encoded_string = encode_base83(frequency_components, components_x,
-                                   components_y)
+    encoded_string = encode_base83(frequency_components, components_x, components_y)
 
     return encoded_string
-
 
 def apply_dct(image, x, y, width, height):
     """
@@ -60,23 +61,13 @@ def apply_dct(image, x, y, width, height):
     Returns:
         np.ndarray: The frequency component for the given indices.
     """
-    # Calculate the cosine basis functions
     cosines = np.cos(np.pi * np.arange(width) * x / width)[:, None] * \
               np.cos(np.pi * np.arange(height) * y / height)[None, :]
 
-    # Scale factor
-    scale = np.sqrt(
-        (2 if x != 0 else 1) * (2 if y != 0 else 1) / (width * height))
+    scale = np.sqrt((2 if x != 0 else 1) * (2 if y != 0 else 1) / (width * height))
+    dct_value = np.tensordot(image, cosines, axes=((0, 1), (0, 1))) * scale
 
-    # Compute the DCT value
-    image_y = image[:, :, 0]  # Red channel
-    image_y = image_y - np.mean(image_y)  # Zero-mean
-    dct_value = np.sum(image_y * cosines) * scale
-
-    # Assuming the DCT is applied to the Y channel only, return the result
-    return np.array([dct_value, dct_value,
-                     dct_value])  # Return same value for RGB channels
-
+    return dct_value
 
 def encode_base83(frequency_components, components_x, components_y):
     """
@@ -91,14 +82,12 @@ def encode_base83(frequency_components, components_x, components_y):
         str: The encoded Base83 string.
     """
     # Encode component dimensions and quantized AC components
-    ac_encoded = encode_ac(frequency_components[1:], components_x,
-                           components_y)
+    ac_encoded = encode_ac(frequency_components[1:], components_x, components_y)
 
     # Encode DC component
     dc_encoded = encode_dc(frequency_components[0])
 
     return dc_encoded + ac_encoded
-
 
 def encode_dc(dc):
     """
@@ -110,10 +99,8 @@ def encode_dc(dc):
     Returns:
         str: The encoded DC component as a Base83 string.
     """
-    dc_value = (int(dc[0] * 255) << 16) + (int(dc[1] * 255) << 8) + int(
-        dc[2] * 255)
+    dc_value = (int(dc[0] * 255) << 16) + (int(dc[1] * 255) << 8) + int(dc[2] * 255)
     return encode_base83_value(dc_value, 4)
-
 
 def encode_ac(ac_components, components_x, components_y):
     """
@@ -142,7 +129,6 @@ def encode_ac(ac_components, components_x, components_y):
 
     return ac_encoded
 
-
 def encode_base83_value(value, length):
     """
     Encodes an integer value into a Base83 string of a given length.
@@ -160,12 +146,7 @@ def encode_base83_value(value, length):
         value //= 83
     return base83
 
-
-def decode_string_to_image(encoded_string,
-                           width,
-                           height,
-                           components_x=4,
-                           components_y=3):
+def decode_string_to_image(encoded_string, width, height, components_x=4, components_y=3):
     """
     Decodes a compact string representation back into an image.
 
@@ -180,8 +161,7 @@ def decode_string_to_image(encoded_string,
         np.ndarray: The decoded image data.
     """
     # Decode components from Base83 string
-    frequency_components = decode_base83(encoded_string, components_x,
-                                         components_y)
+    frequency_components = decode_base83(encoded_string, components_x, components_y)
 
     # Reconstruct the image using IDCT
     image = np.zeros((height, width, 3))
@@ -192,8 +172,7 @@ def decode_string_to_image(encoded_string,
                 for i in range(components_x):
                     if i == 0 and j == 0:
                         continue
-                    basis = np.cos(np.pi * x * i / width) * np.cos(
-                        np.pi * y * j / height)
+                    basis = np.cos(np.pi * x * i / width) * np.cos(np.pi * y * j / height)
                     color += frequency_components[j * components_x + i] * basis
             image[y, x, :] = np.clip(color, 0, 1)
 
@@ -201,7 +180,6 @@ def decode_string_to_image(encoded_string,
     image = (image * 255).astype(np.uint8)
 
     return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
 
 def decode_base83(encoded_string, components_x, components_y):
     """
@@ -234,7 +212,6 @@ def decode_base83(encoded_string, components_x, components_y):
 
     return [dc_component] + ac_components
 
-
 def decode_base83_value(base83_str):
     """
     Decodes a Base83 string into an integer value.
@@ -250,21 +227,32 @@ def decode_base83_value(base83_str):
         value = value * 83 + BASE83_CHARACTERS.index(char)
     return value
 
-
-# Example usage
 if __name__ == "__main__":
-    # Specify the path to the image you want to encode
-    image_path = "example.jpg"
+    # Display menu and get user choice
+    print("Select an option:")
+    print("1. Encode image to hash")
+    print("2. Decode hash to image")
+    choice = input("Enter your choice (1/2): ")
 
-    # Encode the image into a string representation
-    encoded_string = encode_image_to_string(image_path)
+    if choice == '1':
+        # Option 1: Encode image to hash
+        print("Please enter the path to the image file:")
+        image_path = input("Image path: ").strip()
+        if not os.path.isfile(image_path):
+            print("Invalid file path.")
+        else:
+            encoded_string = encode_image_to_string(image_path)
+            print("Encoded string:", encoded_string)
 
-    # Decode the string back into an image
-    decoded_image = decode_string_to_image(encoded_string,
-                                           width=128,
-                                           height=128)
+    elif choice == '2':
+        # Option 2: Decode hash to image
+        encoded_string = input("Enter the encoded string: ").strip()
+        width = int(input("Enter the width of the image: "))
+        height = int(input("Enter the height of the image: "))
+        image = decode_string_to_image(encoded_string, width, height)
+        output_path = input("Enter the path to save the output image (e.g., output.png): ").strip()
+        cv2.imwrite(output_path, image)
+        print(f"Image saved to {output_path}")
 
-    # Save the decoded image
-    cv2.imwrite("decoded_image.jpg", decoded_image)
-
-    print("Encoding and decoding completed successfully.")
+    else:
+        print("Invalid choice. Please select 1 or 2.")
