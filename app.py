@@ -8,7 +8,7 @@ from flask import Flask, render_template, request, redirect, url_for, send_from_
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
-app.secret_key = 'your_secret_key'  # Replace with a real secret key
+app.secret_key = "3f4e7b9d8a2c45f1b93d2c4b5d8f7a6e" 
 
 # Helper function to check allowed file extensions
 def allowed_file(filename):
