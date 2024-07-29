@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image BlurHash App</title>
+    <!-- Include Tailwind CSS via CDN -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.2/dist/tailwind.min.css"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="bg-gray-100 text-gray-800">
+    <div class="container mx-auto p-4">
+      <!-- Page Title -->
+      <h1 class="text-3xl font-bold mb-6 text-center">Image BlurHash App</h1>
+
+      <!-- Image to Hash Section -->
+      <div class="bg-white shadow-md rounded-lg p-6 mb-6">
+        <h2 class="text-2xl font-semibold mb-4 text-center">Image to Hash</h2>
+        <form
+          action="/"
+          method="post"
+          enctype="multipart/form-data"
+          class="flex flex-col items-center"
+        >
+          <input
+            type="file"
+            name="file"
+            class="border border-gray-300 p-2 rounded mb-4 w-full"
+          />
+          <button
+            type="submit"
+            name="image_to_hash"
+            class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          >
+            Generate Hash
+          </button>
+        </form>
+
+        {% if uploaded_image_url and generated_hash %}
+        <div class="flex justify-around items-center mt-6">
+          <!-- Uploaded Image -->
+          <div>
+            <h3 class="text-lg font-semibold text-center">Uploaded Image</h3>
+            <img
+              src="{{ uploaded_image_url }}"
+              alt="Uploaded Image"
+              class="border border-gray-300 rounded-lg mt-2"
+            />
+          </div>
+
+          <!-- Generated Image -->
+          <div>
+            <h3 class="text-lg font-semibold text-center">
+              Generated Image from Hash
+            </h3>
+            <img
+              src="{{ generated_image_url }}"
+              alt="Generated Image"
+              class="border border-gray-300 rounded-lg mt-2"
+            />
+          </div>
+        </div>
+        <!-- Display the hash string below the images -->
+        <div class="mt-4 text-center">
+          <h4 class="text-lg font-semibold">Generated BlurHash</h4>
+          <p class="bg-gray-200 rounded p-2 inline-block mt-2">
+            {{ generated_hash }}
+          </p>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Hash to Image Section -->
+      <div class="bg-white shadow-md rounded-lg p-6">
+        <h2 class="text-2xl font-semibold mb-4 text-center">Hash to Image</h2>
+        <form action="/" method="post" class="flex flex-col items-center">
+          <input
+            type="text"
+            name="blurhash"
+            placeholder="Enter BlurHash"
+            class="border border-gray-300 p-2 rounded mb-2 w-full"
+            required
+          />
+          <div class="flex gap-4 mb-4 w-full">
+            <input
+              type="number"
+              name="width"
+              placeholder="Width"
+              class="border border-gray-300 p-2 rounded w-full"
+              min="1"
+              required
+            />
+            <input
+              type="number"
+              name="height"
+              placeholder="Height"
+              class="border border-gray-300 p-2 rounded w-full"
+              min="1"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            name="hash_to_image"
+            class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+          >
+            Generate Image
+          </button>
+        </form>
+      </div>
+
+      <!-- Flash Messages -->
+      {% with messages = get_flashed_messages() %} {% if messages %}
+      <div
+        class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mt-6"
+      >
+        <ul>
+          {% for message in messages %}
+          <li>{{ message }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %} {% endwith %}
+
+      <!-- Display Decoded Image -->
+      {% if decoded_image_url %}
+      <div class="mt-6 text-center">
+        <h2 class="text-2xl font-semibold mb-4">Decoded Image</h2>
+        <img
+          src="{{ decoded_image_url }}"
+          alt="Decoded Image"
+          class="border border-gray-300 rounded-lg mx-auto"
+        />
+      </div>
+      {% endif %}
+    </div>
+  </body>
+</html>

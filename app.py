@@ -1,273 +1,192 @@
-import numpy as np
-import cv2
-import requests
-from io import BytesIO
-from PIL import Image
 import os
+import numpy as np
+from PIL import Image
+from math import cos, pi
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
 
-# Constants for Base83 encoding
-BASE83_CHARACTERS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~"
+# Initialize Flask application
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
+app.secret_key = 'your_secret_key'  # Replace with a real secret key
 
-def fetch_image(image_url):
-    """
-    Fetches an image from a URL and returns it as a numpy array.
+# Helper function to check allowed file extensions
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-    Args:
-        image_url (str): The URL of the image.
+# Helper function to perform the Discrete Cosine Transform (DCT)
+def dct_2d(image):
+    h, w = image.shape
+    dct_matrix = np.zeros((h, w))
+    for u in range(h):
+        for v in range(w):
+            sum_val = 0.0
+            for i in range(h):
+                for j in range(w):
+                    sum_val += image[i, j] * cos(pi * u * (2 * i + 1) / (2 * h)) * cos(pi * v * (2 * j + 1) / (2 * w))
+            c_u = 1.0 if u != 0 else 1 / np.sqrt(2)
+            c_v = 1.0 if v != 0 else 1 / np.sqrt(2)
+            dct_matrix[u, v] = sum_val * c_u * c_v / np.sqrt(h * w)
+    return dct_matrix
 
-    Returns:
-        np.ndarray: The image data as a numpy array.
-    """
-    response = requests.get(image_url)
-    if response.status_code == 200:
-        image = Image.open(BytesIO(response.content))
-        return np.array(image.convert('RGB')) / 255.0
-    else:
-        raise ValueError(f"Failed to fetch image from URL: {image_url}")
+# Helper function to perform the Inverse Discrete Cosine Transform (IDCT)
+def idct_2d(dct_matrix):
+    h, w = dct_matrix.shape
+    idct_matrix = np.zeros((h, w))
+    for i in range(h):
+        for j in range(w):
+            sum_val = 0.0
+            for u in range(h):
+                for v in range(w):
+                    c_u = 1.0 if u != 0 else 1 / np.sqrt(2)
+                    c_v = 1.0 if v != 0 else 1 / np.sqrt(2)
+                    sum_val += c_u * c_v * dct_matrix[u, v] * cos(pi * u * (2 * i + 1) / (2 * h)) * cos(pi * v * (2 * j + 1) / (2 * w))
+            idct_matrix[i, j] = sum_val / np.sqrt(h * w)
+    return idct_matrix
 
-def encode_image_to_string(image_data, components_x=4, components_y=3):
-    """
-    Encodes an image into a compact string representation using a DCT-based method.
+# Function to encode an image into a BlurHash-like string
+def encode_image(image_path, components_x=4, components_y=4):
+    image = Image.open(image_path).convert("RGB")
+    image = image.resize((components_x, components_y))
+    pixels = np.array(image) / 255.0  # Normalize pixel values
 
-    Args:
-        image_data (np.ndarray): The image data as a numpy array.
-        components_x (int): The number of horizontal components.
-        components_y (int): The number of vertical components.
+    # Compute DCT for each channel
+    r_dct = dct_2d(pixels[:,:,0])
+    g_dct = dct_2d(pixels[:,:,1])
+    b_dct = dct_2d(pixels[:,:,2])
 
-    Returns:
-        str: The encoded string representation of the image.
-    """
-    height, width, _ = image_data.shape
+    # Quantize the DCT coefficients
+    r_quant = np.round(r_dct * 100).astype(int)
+    g_quant = np.round(g_dct * 100).astype(int)
+    b_quant = np.round(b_dct * 100).astype(int)
 
-    # Initialize frequency components
-    frequency_components = []
+    # Ensure no invalid or empty values by filling gaps with zeros
+    r_quant = np.nan_to_num(r_quant)
+    g_quant = np.nan_to_num(g_quant)
+    b_quant = np.nan_to_num(b_quant)
 
-    # Calculate average color
-    avg_color = np.mean(image_data, axis=(0, 1))
-    frequency_components.append(avg_color)
+    # Encode the quantized coefficients into a string
+    hash_string = f'{components_x}x{components_y}-' + \
+                  '-'.join([str(v) for v in r_quant.flatten()]) + '-' + \
+                  '-'.join([str(v) for v in g_quant.flatten()]) + '-' + \
+                  '-'.join([str(v) for v in b_quant.flatten()])
 
-    # Apply DCT to capture frequency components
-    for y in range(components_y):
-        for x in range(components_x):
-            if x == 0 and y == 0:
-                continue
-            dct_value = apply_dct(image_data, x, y, width, height)
-            frequency_components.append(dct_value)
+    return hash_string
 
-    # Encode frequency components into a Base83 string
-    encoded_string = encode_base83(frequency_components, components_x, components_y)
+# Function to decode a BlurHash-like string into an image
+def decode_hash(hash_string, width, height):
+    parts = hash_string.split('-')
+    components_x, components_y = map(int, parts[0].split('x'))
+    
+    expected_size = components_x * components_y
 
-    return encoded_string
+    # Debugging outputs
+    print(f"Hash parts: {parts}")
+    print(f"Expected components: {components_x}x{components_y}")
+    print(f"Expected size per component: {expected_size}")
 
-def apply_dct(image, x, y, width, height):
-    """
-    Applies Discrete Cosine Transform (DCT) to extract frequency components.
+    # Validate if there are enough components in the hash
+    if len(parts) < 1 + 3 * expected_size:
+        raise ValueError("Invalid hash: missing or incomplete components")
 
-    Args:
-        image (np.ndarray): The image data.
-        x (int): Horizontal component index.
-        y (int): Vertical component index.
-        width (int): Image width.
-        height (int): Image height.
+    # Parse the quantized values from the hash string
+    r_values_str = parts[1:1 + expected_size]
+    g_values_str = parts[1 + expected_size:1 + 2 * expected_size]
+    b_values_str = parts[1 + 2 * expected_size:1 + 3 * expected_size]
 
-    Returns:
-        np.ndarray: The frequency component for the given indices.
-    """
-    cosines = np.cos(np.pi * np.arange(width) * x / width)[:, None] * \
-              np.cos(np.pi * np.arange(height) * y / height)[None, :]
+    # Debugging outputs for parsed strings
+    print(f"R values string: {r_values_str}")
+    print(f"G values string: {g_values_str}")
+    print(f"B values string: {b_values_str}")
+    print(f"Actual size R: {len(r_values_str)}, G: {len(g_values_str)}, B: {len(b_values_str)}")
 
-    scale = np.sqrt((2 if x != 0 else 1) * (2 if y != 0 else 1) / (width * height))
-    dct_value = np.tensordot(image, cosines, axes=((0, 1), (0, 1))) * scale
+    # Ensure the strings have correct numbers of elements
+    if len(r_values_str) != expected_size or len(g_values_str) != expected_size or len(b_values_str) != expected_size:
+        raise ValueError("Invalid hash: incorrect number of coefficients")
 
-    return dct_value
+    # Convert to integers safely, skip any empty strings
+    try:
+        r_values = np.array([int(x) if x != '' else 0 for x in r_values_str]).reshape((components_y, components_x))
+        g_values = np.array([int(x) if x != '' else 0 for x in g_values_str]).reshape((components_y, components_x))
+        b_values = np.array([int(x) if x != '' else 0 for x in b_values_str]).reshape((components_y, components_x))
+    except ValueError as e:
+        print("Error parsing values:", e)
+        raise ValueError("Invalid hash: unable to parse coefficients") from e
 
-def encode_base83(frequency_components, components_x, components_y):
-    """
-    Encodes frequency components into a Base83 string representation.
+    # Dequantize the values
+    r_dequant = r_values / 100.0
+    g_dequant = g_values / 100.0
+    b_dequant = b_values / 100.0
 
-    Args:
-        frequency_components (list): The list of frequency components.
-        components_x (int): The number of horizontal components.
-        components_y (int): The number of vertical components.
+    # Compute IDCT for each channel
+    r_idct = idct_2d(r_dequant)
+    g_idct = idct_2d(g_dequant)
+    b_idct = idct_2d(b_dequant)
 
-    Returns:
-        str: The encoded Base83 string.
-    """
-    # Encode component dimensions and quantized AC components
-    ac_encoded = encode_ac(frequency_components[1:], components_x, components_y)
+    # Clip values to valid range and convert to 0-255
+    r_channel = np.clip(r_idct * 255.0, 0, 255).astype(np.uint8)
+    g_channel = np.clip(g_idct * 255.0, 0, 255).astype(np.uint8)
+    b_channel = np.clip(b_idct * 255.0, 0, 255).astype(np.uint8)
 
-    # Encode DC component
-    dc_encoded = encode_dc(frequency_components[0])
+    # Combine the channels into an image
+    image = np.stack((r_channel, g_channel, b_channel), axis=-1)
 
-    return dc_encoded + ac_encoded
+    # Resize the image to the target size
+    decoded_image = Image.fromarray(image).resize((width, height), Image.BICUBIC)
 
-def encode_dc(dc):
-    """
-    Encodes the DC component of the frequency data into a Base83 string.
+    return decoded_image
 
-    Args:
-        dc (np.ndarray): The DC component.
+# Route for the home page
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'POST':
+        if 'image_to_hash' in request.form:
+            # Image to Hash operation
+            if 'file' not in request.files:
+                flash('No file part')
+                return redirect(request.url)
+            file = request.files['file']
+            if file.filename == '':
+                flash('No selected file')
+                return redirect(request.url)
+            if file and allowed_file(file.filename):
+                filename = file.filename
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(file_path)
 
-    Returns:
-        str: The encoded DC component as a Base83 string.
-    """
-    dc_value = (int(dc[0] * 255) << 16) + (int(dc[1] * 255) << 8) + int(dc[2] * 255)
-    return encode_base83_value(dc_value, 4)
+                # Generate the hash
+                try:
+                    blurhash = encode_image(file_path)
+                    flash(f'Generated BlurHash: {blurhash}')
+                except Exception as e:
+                    flash(f'Error processing image: {e}')
+                return redirect(request.url)
 
-def encode_ac(ac_components, components_x, components_y):
-    """
-    Encodes AC components of the frequency data into a Base83 string.
+        elif 'hash_to_image' in request.form:
+            # Hash to Image operation
+            blurhash = request.form['blurhash']
+            width = int(request.form['width'])
+            height = int(request.form['height'])
 
-    Args:
-        ac_components (list): The AC components.
-        components_x (int): The number of horizontal components.
-        components_y (int): The number of vertical components.
+            try:
+                decoded_image = decode_hash(blurhash, width, height)
+                decoded_image_path = os.path.join(app.config['UPLOAD_FOLDER'], 'decoded_image.png')
+                decoded_image.save(decoded_image_path)
+                flash('Image generated from hash successfully!')
+                return render_template('index.html', decoded_image_url=url_for('static', filename='uploads/decoded_image.png'))
+            except Exception as e:
+                flash(f'Error decoding hash: {e}')
+                return redirect(request.url)
 
-    Returns:
-        str: The encoded AC components as a Base83 string.
-    """
-    max_ac = max(np.linalg.norm(ac, ord=2) for ac in ac_components)
-    quantized_max_ac = min(82, max(0, int(max_ac * 166 - 0.5)))
-    ac_encoded = encode_base83_value(quantized_max_ac, 1)
+    return render_template('index.html', decoded_image_url=None)
 
-    for ac in ac_components:
-        if quantized_max_ac > 0:
-            quantized_ac = (ac / max_ac) * 9
-            quantized_ac = np.clip(quantized_ac, -9, 9)
-            ac_value = ((int(quantized_ac[0] * 9 + 9.5) * 19 * 19) +
-                        (int(quantized_ac[1] * 9 + 9.5) * 19) +
-                        int(quantized_ac[2] * 9 + 9.5))
-            ac_encoded += encode_base83_value(ac_value, 2)
+# Route to display uploaded images
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
-    return ac_encoded
-
-def encode_base83_value(value, length):
-    """
-    Encodes an integer value into a Base83 string of a given length.
-
-    Args:
-        value (int): The value to encode.
-        length (int): The length of the Base83 string.
-
-    Returns:
-        str: The encoded Base83 string.
-    """
-    base83 = ''
-    for _ in range(length):
-        base83 = BASE83_CHARACTERS[value % 83] + base83
-        value //= 83
-    return base83
-
-def decode_string_to_image(encoded_string, width, height, components_x=4, components_y=3):
-    """
-    Decodes a compact string representation back into an image.
-
-    Args:
-        encoded_string (str): The encoded string representation of the image.
-        width (int): The width of the output image.
-        height (int): The height of the output image.
-        components_x (int): The number of horizontal components.
-        components_y (int): The number of vertical components.
-
-    Returns:
-        np.ndarray: The decoded image data.
-    """
-    # Decode components from Base83 string
-    frequency_components = decode_base83(encoded_string, components_x, components_y)
-
-    # Reconstruct the image using IDCT
-    image = np.zeros((height, width, 3))
-    for y in range(height):
-        for x in range(width):
-            color = frequency_components[0]
-            for j in range(components_y):
-                for i in range(components_x):
-                    if i == 0 and j == 0:
-                        continue
-                    basis = np.cos(np.pi * x * i / width) * np.cos(np.pi * y * j / height)
-                    color += frequency_components[j * components_x + i] * basis
-            image[y, x, :] = np.clip(color, 0, 1)
-
-    # Convert image back to uint8
-    image = (image * 255).astype(np.uint8)
-
-    return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-def decode_base83(encoded_string, components_x, components_y):
-    """
-    Decodes frequency components from a Base83 string.
-
-    Args:
-        encoded_string (str): The encoded Base83 string.
-        components_x (int): The number of horizontal components.
-        components_y (int): The number of vertical components.
-
-    Returns:
-        list: The decoded frequency components.
-    """
-    # Decode DC component
-    dc_value = decode_base83_value(encoded_string[:4])
-    dc_component = np.array([((dc_value >> 16) & 255) / 255.0,
-                             ((dc_value >> 8) & 255) / 255.0,
-                             (dc_value & 255) / 255.0])
-
-    # Decode AC components
-    max_ac = (decode_base83_value(encoded_string[4:5]) + 1) / 166
-    ac_components = []
-
-    for i in range(components_x * components_y - 1):
-        ac_value = decode_base83_value(encoded_string[5 + 2 * i:7 + 2 * i])
-        quantized_ac = np.array([(ac_value // (19 * 19)) - 9,
-                                 ((ac_value // 19) % 19) - 9,
-                                 (ac_value % 19) - 9])
-        ac_components.append((quantized_ac / 9) * max_ac)
-
-    return [dc_component] + ac_components
-
-def decode_base83_value(base83_str):
-    """
-    Decodes a Base83 string into an integer value.
-
-    Args:
-        base83_str (str): The Base83 string.
-
-    Returns:
-        int: The decoded integer value.
-    """
-    value = 0
-    for char in base83_str:
-        value = value * 83 + BASE83_CHARACTERS.index(char)
-    return value
-
-def main():
-    print("Select an option:")
-    print("1. Encode image to hash")
-    print("2. Decode hash to image")
-    choice = input("Enter your choice (1/2): ").strip()
-
-    if choice == '1':
-        # Option 1: Encode image to hash
-        print("Please enter the URL of the image:")
-        image_url = input("Image URL: ").strip()
-        try:
-            image_data = fetch_image(image_url)
-            encoded_string = encode_image_to_string(image_data)
-            print("Encoded string:", encoded_string)
-        except Exception as e:
-            print(f"Error: {e}")
-
-    elif choice == '2':
-        # Option 2: Decode hash to image
-        encoded_string = input("Enter the encoded string: ").strip()
-        width = int(input("Enter the width of the image: "))
-        height = int(input("Enter the height of the image: "))
-        image = decode_string_to_image(encoded_string, width, height)
-        output_path = input("Enter the path to save the output image (e.g., output.png): ").strip()
-        cv2.imwrite(output_path, image)
-        print(f"Image saved to {output_path}")
-
-    else:
-        print("Invalid choice. Please select 1 or 2.")
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    # Create the upload folder if it doesn't exist
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+    app.run(debug=True)
